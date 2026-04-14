@@ -27,7 +27,7 @@ jobs:
           from calendar import month_name
 
           # --- FETCH SHEET ---
-          url = "https://docs.google.com/spreadsheets/d/1T_lHIF1qOkuqFeXBM1uYz1Hx8pAkNIfOwQiicSfWkdE/ gviz/tq?tqx=out:csv&gid=314639742"
+          url = "https://docs.google.com/spreadsheets/d/1T_lHIF1qOkuqFeXBM1uYz1Hx8pAkNIfOwQiicSfWkdE/gviz/tq?tqx=out:csv&gid=314639742"
           req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
           with urllib.request.urlopen(req, timeout=30) as r:
               raw = r.read().decode("utf-8")

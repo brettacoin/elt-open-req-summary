@@ -1,0 +1,292 @@
+name: Update ELT Dashboard
+
+on:
+  schedule:
+    - cron: '15 17 * * 1-5'  # 10:15 AM PT (Mon-Fri), after Cowork task runs
+  workflow_dispatch:           # also allows manual "Run workflow" button
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Generate dashboard
+        run: |
+          python3 << 'PYEOF'
+          import urllib.request
+          import csv
+          import io
+          from datetime import date, datetime
+          from collections import Counter
+          from calendar import month_name
+
+          # --- FETCH SHEET ---
+          url = "https://docs.google.com/spreadsheets/d/1T_lHIF1qOkuqFeXBM1uYz1Hx8pAkNIfOwQiicSfWkdE/export?format=csv&gid=314639742"
+          req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+          with urllib.request.urlopen(req, timeout=30) as r:
+              raw = r.read().decode("utf-8")
+
+          # --- PARSE: find # Report section ---
+          reader = csv.reader(io.StringIO(raw))
+          all_rows = list(reader)
+          header_idx = None
+          for i, row in enumerate(all_rows):
+              if row and row[0].strip() == "# Report":
+                  header_idx = i + 1  # next row is the column header
+                  break
+
+          if header_idx is None:
+              raise ValueError("Could not find # Report section")
+
+          data_rows = []
+          for row in all_rows[header_idx + 1:]:
+              if not any(cell.strip() for cell in row):
+                  continue
+              if len(row) < 14:
+                  continue
+              data_rows.append(row)
+
+          # --- COMPUTE METRICS ---
+          today = date.today()
+          intern_recruiter = "Brittney Lee"
+
+          rows = []
+          for r in data_rows:
+              job_name    = r[0].strip()
+              department  = r[1].strip()
+              office      = r[2].strip()
+              recruiter   = r[6].strip()
+              pipeline    = r[7].strip()
+              forecast_dt = r[9].strip()
+              days_open   = int(r[13].strip()) if r[13].strip().isdigit() else 0
+              req_reason  = r[14].strip() if len(r) > 14 else ""
+              rows.append((job_name, department, office, recruiter, pipeline, forecast_dt, days_open, req_reason))
+
+          pro_rows    = [r for r in rows if r[3] != intern_recruiter]
+          intern_rows = [r for r in rows if r[3] == intern_recruiter]
+
+          total       = len(rows)
+          pro_count   = len(pro_rows)
+          intern_count= len(intern_rows)
+          net_new     = sum(1 for r in rows if "Net New" in r[7])
+          backfill    = total - net_new
+          avg_days    = round(sum(r[6] for r in pro_rows) / pro_count) if pro_count else 0
+
+          green  = sum(1 for r in rows if r[6] <= 45)
+          yellow = sum(1 for r in rows if 46 <= r[6] <= 74)
+          red    = sum(1 for r in rows if r[6] >= 75)
+
+          def parse_forecast(s):
+              if not s: return None
+              try:
+                  d = datetime.strptime(s.strip(), "%m/%d/%Y").date()
+                  return d if d >= today.replace(day=1) else None
+              except: return None
+
+          forecast = {}
+          for offset in range(3):
+              m = (today.month - 1 + offset) % 12 + 1
+              y = today.year + (today.month - 1 + offset) // 12
+              label = f"{month_name[m]} {y}"
+              pro_f = sum(1 for r in pro_rows    if (d := parse_forecast(r[5])) and d.year==y and d.month==m)
+              int_f = sum(1 for r in intern_rows if (d := parse_forecast(r[5])) and d.year==y and d.month==m)
+              forecast[label] = (pro_f, int_f, pro_f + int_f)
+
+          pipeline_ct     = Counter()
+          for r in pro_rows:
+              s = r[4].strip() if r[4] else "No Status"
+              pipeline_ct[s] += 1
+
+          recruiter_counts = Counter(r[3] for r in pro_rows)
+          dept_counts      = Counter(r[1] for r in rows)
+          office_counts    = Counter()
+          remote_counts    = Counter()
+          for r in rows:
+              loc = r[2].strip()
+              if "Remote" in loc or "remote" in loc:
+                  remote_counts[loc] += 1
+              else:
+                  office_counts[loc] += 1
+
+          # --- BUILD HTML ---
+          today_str   = today.strftime("%B %-d, %Y")
+          pct_green   = round(green  / total * 100, 1) if total else 0
+          pct_yellow  = round(yellow / total * 100, 1) if total else 0
+          pct_red     = round(red    / total * 100, 1) if total else 0
+
+          rec_rows_html = ""
+          for name, cnt in sorted(recruiter_counts.items(), key=lambda x: -x[1]):
+              rec_rows_html += f'<li><span>{name}</span><span class="recruiter-count">{cnt}</span></li>\n'
+          rec_rows_html += f'<li><span>Brittney Lee <span class="intern-tag">Intern</span></span><span class="recruiter-count" style="background:#b45309;">{intern_count}</span></li>\n'
+
+          dept_html = ""
+          for dept, cnt in sorted(dept_counts.items(), key=lambda x: -x[1]):
+              dept_safe = dept.replace("&", "&amp;")
+              dept_html += f'<div class="dept-item"><span>{dept_safe}</span><span class="dept-count">{cnt}</span></div>\n'
+
+          office_html = ""
+          for loc, cnt in sorted(office_counts.items(), key=lambda x: -x[1]):
+              office_html += f'<div class="loc-item"><span>{loc}</span><span class="loc-count">{cnt}</span></div>\n'
+
+          remote_html = ""
+          for loc, cnt in sorted(remote_counts.items(), key=lambda x: -x[1]):
+              remote_html += f'<div class="loc-item"><span>{loc}</span><span class="loc-count remote">{cnt}</span></div>\n'
+
+          pipeline_css_map = {
+              "Sourcing": "sourcing", "HM Interviews": "hm-intvws",
+              "Onsite Interviews": "onsite", "Offer": "offer", "Launch": "launch",
+          }
+          pipeline_html = ""
+          for stage, cnt in sorted(pipeline_ct.items(), key=lambda x: -x[1]):
+              label = "No Stage Yet" if stage in ("No Status", "", "No Stage") else stage
+              css   = pipeline_css_map.get(stage, "no-stage" if "No" in label else "")
+              pipeline_html += f'<div class="pipeline-stage {css}"><div class="ps-num">{cnt}</div><div class="ps-lbl">{label}</div></div>\n'
+
+          f_months = list(forecast.items())[:3]
+          while len(f_months) < 3:
+              f_months.append(("—", (0, 0, 0)))
+          forecast_html = ""
+          for lbl, (pf, inf, tot) in f_months:
+              forecast_html += f'''<div class="forecast-month"><div class="f-month">{lbl}</div><div class="f-total">{tot}</div><div class="f-sub">projected starts</div><div class="f-split"><div class="f-pro"><div class="fnum">{pf}</div><div class="flbl">Professional</div></div><div class="f-int"><div class="fnum">{inf}</div><div class="flbl">Intern</div></div></div></div>\n'''
+
+          html = f"""<!DOCTYPE html>
+          <html lang="en">
+          <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>ELT Job Status Dashboard</title>
+          <style>
+            * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+            body {{ font-family: 'Segoe UI', Arial, sans-serif; background: #f0f2f7; color: #222; }}
+            .header {{ background: #1a2744; color: #fff; padding: 22px 36px 18px; display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 12px; }}
+            .header h1 {{ font-size: 26px; font-weight: 700; letter-spacing: 0.5px; }}
+            .header-meta {{ font-size: 13px; color: #a8c4e0; margin-top: 4px; }}
+            .header-counts {{ display: flex; gap: 20px; align-items: center; }}
+            .header-count-item {{ text-align: center; background: rgba(255,255,255,0.08); border-radius: 8px; padding: 8px 18px; }}
+            .header-count-item .num {{ font-size: 28px; font-weight: 800; color: #00b4d8; }}
+            .header-count-item .lbl {{ font-size: 11px; color: #a8c4e0; text-transform: uppercase; letter-spacing: 0.8px; }}
+            .main {{ padding: 28px 36px; }}
+            .kpi-row {{ display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 24px; }}
+            .kpi-card {{ background: #fff; border-radius: 10px; padding: 18px 22px; flex: 1; min-width: 120px; box-shadow: 0 2px 8px rgba(0,0,0,0.07); text-align: center; border-top: 4px solid #1a2744; }}
+            .kpi-card .kpi-num {{ font-size: 34px; font-weight: 800; color: #1a2744; }}
+            .kpi-card .kpi-lbl {{ font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 0.7px; margin-top: 4px; }}
+            .kpi-card.intern-card {{ border-top-color: #f59e0b; }} .kpi-card.intern-card .kpi-num {{ color: #b45309; }}
+            .kpi-card.netnew-card {{ border-top-color: #00b4d8; }} .kpi-card.netnew-card .kpi-num {{ color: #0077a8; }}
+            .kpi-card.backfill-card {{ border-top-color: #6366f1; }} .kpi-card.backfill-card .kpi-num {{ color: #4338ca; }}
+            .kpi-card.avg-card {{ border-top-color: #8b5cf6; }} .kpi-card.avg-card .kpi-num {{ color: #6d28d9; }}
+            .section-title {{ font-size: 15px; font-weight: 700; color: #1a2744; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 12px; padding-bottom: 6px; border-bottom: 2px solid #e2e8f0; }}
+            .section-subtitle {{ font-size: 12px; color: #888; font-weight: 400; text-transform: none; letter-spacing: 0; margin-left: 8px; }}
+            .aging-row {{ display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 24px; }}
+            .aging-card {{ flex: 1; min-width: 180px; border-radius: 10px; padding: 20px 24px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); text-align: center; color: #fff; }}
+            .aging-card.green {{ background: linear-gradient(135deg, #16a34a, #22c55e); }}
+            .aging-card.yellow {{ background: linear-gradient(135deg, #d97706, #f59e0b); }}
+            .aging-card.red {{ background: linear-gradient(135deg, #dc2626, #ef4444); }}
+            .aging-card .aging-num {{ font-size: 42px; font-weight: 900; }}
+            .aging-card .aging-pct {{ font-size: 16px; font-weight: 600; opacity: 0.9; margin-top: 2px; }}
+            .aging-card .aging-lbl {{ font-size: 13px; opacity: 0.85; margin-top: 6px; }}
+            .aging-card .aging-range {{ font-size: 11px; opacity: 0.7; margin-top: 2px; }}
+            .two-col {{ display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 24px; }}
+            .three-col {{ display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; margin-bottom: 24px; }}
+            .panel {{ background: #fff; border-radius: 10px; padding: 20px 22px; box-shadow: 0 2px 8px rgba(0,0,0,0.07); }}
+            .forecast-month {{ background: #fff; border-radius: 10px; padding: 18px 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.07); text-align: center; border-top: 4px solid #00b4d8; }}
+            .forecast-month .f-month {{ font-size: 15px; font-weight: 700; color: #1a2744; margin-bottom: 10px; }}
+            .forecast-month .f-total {{ font-size: 36px; font-weight: 900; color: #00b4d8; }}
+            .forecast-month .f-sub {{ font-size: 12px; color: #666; margin-top: 6px; }}
+            .forecast-month .f-split {{ display: flex; justify-content: center; gap: 16px; margin-top: 10px; }}
+            .forecast-month .f-pro {{ background: #eff6ff; border-radius: 6px; padding: 6px 14px; }}
+            .forecast-month .f-int {{ background: #fffbeb; border-radius: 6px; padding: 6px 14px; }}
+            .forecast-month .f-pro .fnum {{ font-size: 20px; font-weight: 800; color: #1a2744; }}
+            .forecast-month .f-int .fnum {{ font-size: 20px; font-weight: 800; color: #b45309; }}
+            .forecast-month .f-pro .flbl, .forecast-month .f-int .flbl {{ font-size: 10px; color: #888; text-transform: uppercase; }}
+            .pipeline-grid {{ display: flex; flex-wrap: wrap; gap: 12px; }}
+            .pipeline-stage {{ background: #f8fafc; border-radius: 8px; padding: 14px 18px; min-width: 110px; border-left: 4px solid #1a2744; text-align: center; }}
+            .pipeline-stage.sourcing {{ border-left-color: #6366f1; }} .pipeline-stage.hm-intvws {{ border-left-color: #f59e0b; }}
+            .pipeline-stage.onsite {{ border-left-color: #0ea5e9; }} .pipeline-stage.offer {{ border-left-color: #22c55e; }}
+            .pipeline-stage.launch {{ border-left-color: #a78bfa; }} .pipeline-stage.no-stage {{ border-left-color: #94a3b8; }}
+            .pipeline-stage .ps-num {{ font-size: 28px; font-weight: 800; color: #1a2744; }}
+            .pipeline-stage .ps-lbl {{ font-size: 11px; color: #555; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 3px; }}
+            .recruiter-list {{ list-style: none; }}
+            .recruiter-list li {{ display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #f0f2f7; font-size: 14px; }}
+            .recruiter-list li:last-child {{ border-bottom: none; }}
+            .recruiter-count {{ background: #1a2744; color: #fff; border-radius: 20px; padding: 2px 12px; font-size: 13px; font-weight: 700; min-width: 34px; text-align: center; }}
+            .intern-tag {{ background: #fef3c7; color: #92400e; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 4px; margin-left: 6px; text-transform: uppercase; }}
+            .dept-list {{ columns: 2; column-gap: 20px; }}
+            .dept-item {{ display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid #f0f2f7; break-inside: avoid; font-size: 13px; }}
+            .dept-count {{ background: #e0f2fe; color: #0369a1; font-size: 12px; font-weight: 700; padding: 1px 9px; border-radius: 12px; min-width: 28px; text-align: center; }}
+            .location-col h4 {{ font-size: 13px; font-weight: 700; color: #1a2744; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 10px; padding-bottom: 5px; border-bottom: 1px solid #e2e8f0; }}
+            .loc-item {{ display: flex; justify-content: space-between; align-items: center; padding: 5px 0; border-bottom: 1px solid #f8fafc; font-size: 13px; }}
+            .loc-count {{ background: #e0f2fe; color: #0369a1; font-size: 12px; font-weight: 700; padding: 1px 9px; border-radius: 12px; min-width: 28px; text-align: center; }}
+            .loc-count.remote {{ background: #f0fdf4; color: #166534; }}
+            .mb-24 {{ margin-bottom: 24px; }}
+          </style>
+          </head>
+          <body>
+          <div class="header">
+            <div>
+              <h1>ELT Job Status Dashboard</h1>
+              <div class="header-meta">As of {today_str} &nbsp;·&nbsp; Live data from Greenhouse via ELT Job Status Report</div>
+            </div>
+            <div class="header-counts">
+              <div class="header-count-item"><div class="num">{total}</div><div class="lbl">Total Open Reqs</div></div>
+              <div class="header-count-item"><div class="num">{pro_count}</div><div class="lbl">Professional</div></div>
+              <div class="header-count-item" style="border-color:#f59e0b;"><div class="num" style="color:#f59e0b;">{intern_count}</div><div class="lbl">Intern</div></div>
+            </div>
+          </div>
+          <div class="main">
+            <div class="kpi-row">
+              <div class="kpi-card"><div class="kpi-num">{total}</div><div class="kpi-lbl">Total Open Reqs</div></div>
+              <div class="kpi-card"><div class="kpi-num">{pro_count}</div><div class="kpi-lbl">Professional</div></div>
+              <div class="kpi-card intern-card"><div class="kpi-num">{intern_count}</div><div class="kpi-lbl">Intern</div></div>
+              <div class="kpi-card netnew-card"><div class="kpi-num">{net_new}</div><div class="kpi-lbl">Net New</div></div>
+              <div class="kpi-card backfill-card"><div class="kpi-num">{backfill}</div><div class="kpi-lbl">Backfill</div></div>
+              <div class="kpi-card avg-card"><div class="kpi-num">{avg_days}</div><div class="kpi-lbl">Avg Days Open (Pro)</div></div>
+            </div>
+            <div class="section-title">Req Aging</div>
+            <div class="aging-row mb-24">
+              <div class="aging-card green"><div class="aging-num">{green}</div><div class="aging-pct">{pct_green}%</div><div class="aging-lbl">🟢 On Track</div><div class="aging-range">0 – 45 days</div></div>
+              <div class="aging-card yellow"><div class="aging-num">{yellow}</div><div class="aging-pct">{pct_yellow}%</div><div class="aging-lbl">🟡 Watch</div><div class="aging-range">46 – 74 days</div></div>
+              <div class="aging-card red"><div class="aging-num">{red}</div><div class="aging-pct">{pct_red}%</div><div class="aging-lbl">🔴 Critical</div><div class="aging-range">75+ days</div></div>
+            </div>
+            <div class="section-title">Forecasted Hires — Next 3 Months</div>
+            <div class="three-col mb-24">{forecast_html}</div>
+            <div class="section-title">Pipeline Status <span class="section-subtitle">Professional reqs only</span></div>
+            <div class="panel mb-24"><div class="pipeline-grid">{pipeline_html}</div></div>
+            <div class="two-col mb-24">
+              <div class="panel"><div class="section-title">By Recruiter</div><ul class="recruiter-list">{rec_rows_html}</ul></div>
+              <div class="panel"><div class="section-title">By Department</div><div class="dept-list">{dept_html}</div></div>
+            </div>
+            <div class="section-title">By Location</div>
+            <div class="two-col mb-24">
+              <div class="panel"><div class="location-col"><h4>🏢 Physical Offices</h4>{office_html}</div></div>
+              <div class="panel"><div class="location-col"><h4>🌐 Remote Locations</h4>{remote_html}</div></div>
+            </div>
+          </div>
+          </body>
+          </html>"""
+
+          # Strip leading whitespace from heredoc indentation
+          lines = html.split('\n')
+          cleaned = '\n'.join(line[10:] if line.startswith('          ') else line for line in lines)
+
+          with open('index.html', 'w') as f:
+              f.write(cleaned)
+          print(f"Generated index.html: {total} reqs, {pro_count} pro, {intern_count} intern")
+          PYEOF
+
+      - name: Commit and push if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Dashboard update $(date +%Y-%m-%d)"
+            git push
+          fi

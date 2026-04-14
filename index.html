@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ELT Job Status Dashboard</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: #f0f2f7; color: #222; }
+
+  /* HEADER */
+  .header {
+    background: #1a2744;
+    color: #fff;
+    padding: 22px 36px 18px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .header h1 { font-size: 26px; font-weight: 700; letter-spacing: 0.5px; }
+  .header-meta { font-size: 13px; color: #a8c4e0; margin-top: 4px; }
+  .header-counts {
+    display: flex; gap: 20px; align-items: center;
+  }
+  .header-count-item {
+    text-align: center;
+    background: rgba(255,255,255,0.08);
+    border-radius: 8px;
+    padding: 8px 18px;
+  }
+  .header-count-item .num { font-size: 28px; font-weight: 800; color: #00b4d8; }
+  .header-count-item .lbl { font-size: 11px; color: #a8c4e0; text-transform: uppercase; letter-spacing: 0.8px; }
+
+  /* MAIN CONTENT */
+  .main { padding: 28px 36px; }
+
+  /* KPI CARDS ROW */
+  .kpi-row {
+    display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 24px;
+  }
+  .kpi-card {
+    background: #fff;
+    border-radius: 10px;
+    padding: 18px 22px;
+    flex: 1; min-width: 120px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+    text-align: center;
+    border-top: 4px solid #1a2744;
+  }
+  .kpi-card .kpi-num { font-size: 34px; font-weight: 800; color: #1a2744; }
+  .kpi-card .kpi-lbl { font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 0.7px; margin-top: 4px; }
+  .kpi-card.intern-card { border-top-color: #f59e0b; }
+  .kpi-card.intern-card .kpi-num { color: #b45309; }
+  .kpi-card.netnew-card { border-top-color: #00b4d8; }
+  .kpi-card.netnew-card .kpi-num { color: #0077a8; }
+  .kpi-card.backfill1-card { border-top-color: #6366f1; }
+  .kpi-card.backfill1-card .kpi-num { color: #4338ca; }
+  .kpi-card.uplevel-card { border-top-color: #8b5cf6; }
+  .kpi-card.uplevel-card .kpi-num { color: #6d28d9; }
+
+  /* SECTION TITLE */
+  .section-title {
+    font-size: 15px; font-weight: 700; color: #1a2744;
+    text-transform: uppercase; letter-spacing: 0.8px;
+    margin-bottom: 12px; padding-bottom: 6px;
+    border-bottom: 2px solid #e2e8f0;
+  }
+  .section-subtitle { font-size: 12px; color: #888; font-weight: 400; text-transform: none; letter-spacing: 0; margin-left: 8px; }
+
+  /* AGING SECTION */
+  .aging-row {
+    display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 24px;
+  }
+  .aging-card {
+    flex: 1; min-width: 180px;
+    border-radius: 10px;
+    padding: 20px 24px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    text-align: center; color: #fff;
+  }
+  .aging-card.green { background: linear-gradient(135deg, #16a34a, #22c55e); }
+  .aging-card.yellow { background: linear-gradient(135deg, #d97706, #f59e0b); }
+  .aging-card.red { background: linear-gradient(135deg, #dc2626, #ef4444); }
+  .aging-card .aging-num { font-size: 42px; font-weight: 900; }
+  .aging-card .aging-pct { font-size: 16px; font-weight: 600; opacity: 0.9; margin-top: 2px; }
+  .aging-card .aging-lbl { font-size: 13px; opacity: 0.85; margin-top: 6px; }
+  .aging-card .aging-range { font-size: 11px; opacity: 0.7; margin-top: 2px; }
+
+  /* TWO COL GRID */
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 24px; }
+  .three-col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; margin-bottom: 24px; }
+
+  /* PANEL */
+  .panel {
+    background: #fff; border-radius: 10px;
+    padding: 20px 22px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+  }
+
+  /* FORECAST GRID */
+  .forecast-month {
+    background: #fff; border-radius: 10px;
+    padding: 18px 20px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+    text-align: center;
+    border-top: 4px solid #00b4d8;
+  }
+  .forecast-month .f-month { font-size: 15px; font-weight: 700; color: #1a2744; margin-bottom: 10px; }
+  .forecast-month .f-total { font-size: 36px; font-weight: 900; color: #00b4d8; }
+  .forecast-month .f-sub { font-size: 12px; color: #666; margin-top: 6px; }
+  .forecast-month .f-split {
+    display: flex; justify-content: center; gap: 16px; margin-top: 10px;
+  }
+  .forecast-month .f-pro { background: #eff6ff; border-radius: 6px; padding: 6px 14px; }
+  .forecast-month .f-int { background: #fffbeb; border-radius: 6px; padding: 6px 14px; }
+  .forecast-month .f-pro .fnum { font-size: 20px; font-weight: 800; color: #1a2744; }
+  .forecast-month .f-int .fnum { font-size: 20px; font-weight: 800; color: #b45309; }
+  .forecast-month .f-pro .flbl, .forecast-month .f-int .flbl { font-size: 10px; color: #888; text-transform: uppercase; }
+
+  /* PIPELINE STATUS CARDS */
+  .pipeline-grid {
+    display: flex; flex-wrap: wrap; gap: 12px;
+  }
+  .pipeline-stage {
+    background: #f8fafc; border-radius: 8px;
+    padding: 14px 18px; min-width: 110px;
+    border-left: 4px solid #1a2744;
+    text-align: center;
+  }
+  .pipeline-stage.sourcing { border-left-color: #6366f1; }
+  .pipeline-stage.hm-intvws { border-left-color: #f59e0b; }
+  .pipeline-stage.onsite { border-left-color: #0ea5e9; }
+  .pipeline-stage.offer { border-left-color: #22c55e; }
+  .pipeline-stage.launch { border-left-color: #a78bfa; }
+  .pipeline-stage.no-stage { border-left-color: #94a3b8; }
+  .pipeline-stage .ps-num { font-size: 28px; font-weight: 800; color: #1a2744; }
+  .pipeline-stage .ps-lbl { font-size: 11px; color: #555; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 3px; }
+
+  /* RECRUITER LIST */
+  .recruiter-list { list-style: none; }
+  .recruiter-list li {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid #f0f2f7;
+    font-size: 14px;
+  }
+  .recruiter-list li:last-child { border-bottom: none; }
+  .recruiter-count {
+    background: #1a2744; color: #fff;
+    border-radius: 20px; padding: 2px 12px;
+    font-size: 13px; font-weight: 700;
+    min-width: 34px; text-align: center;
+  }
+  .intern-tag {
+    background: #fef3c7; color: #92400e;
+    font-size: 10px; font-weight: 700;
+    padding: 2px 7px; border-radius: 4px;
+    margin-left: 6px; text-transform: uppercase; letter-spacing: 0.5px;
+  }
+
+  /* DEPT / LOCATION TABLE */
+  .dept-list { columns: 2; column-gap: 20px; }
+  .dept-item {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 6px 0; border-bottom: 1px solid #f0f2f7;
+    break-inside: avoid;
+    font-size: 13px;
+  }
+  .dept-item:last-child { border-bottom: none; }
+  .dept-count {
+    background: #e0f2fe; color: #0369a1;
+    font-size: 12px; font-weight: 700;
+    padding: 1px 9px; border-radius: 12px;
+    min-width: 28px; text-align: center;
+  }
+
+  /* LOCATION SECTION */
+  .location-col { }
+  .location-col h4 {
+    font-size: 13px; font-weight: 700; color: #1a2744;
+    text-transform: uppercase; letter-spacing: 0.6px;
+    margin-bottom: 10px; padding-bottom: 5px;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  .loc-item {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 5px 0; border-bottom: 1px solid #f8fafc;
+    font-size: 13px;
+  }
+  .loc-count {
+    background: #e0f2fe; color: #0369a1;
+    font-size: 12px; font-weight: 700;
+    padding: 1px 9px; border-radius: 12px;
+    min-width: 28px; text-align: center;
+  }
+  .loc-count.remote { background: #f0fdf4; color: #166534; }
+
+  .full-width { grid-column: 1 / -1; }
+
+  .mb-24 { margin-bottom: 24px; }
+  .mt-8 { margin-top: 8px; }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <div>
+    <h1>ELT Job Status Dashboard</h1>
+    <div class="header-meta">As of April 14, 2026 &nbsp;·&nbsp; Live data from Greenhouse via ELT Job Status Report</div>
+  </div>
+  <div class="header-counts">
+    <div class="header-count-item">
+      <div class="num">68</div>
+      <div class="lbl">Total Open Reqs</div>
+    </div>
+    <div class="header-count-item">
+      <div class="num">61</div>
+      <div class="lbl">Professional</div>
+    </div>
+    <div class="header-count-item" style="border-color:#f59e0b;">
+      <div class="num" style="color:#f59e0b;">7</div>
+      <div class="lbl">Intern</div>
+    </div>
+  </div>
+</div>
+
+<div class="main">
+
+  <!-- KPI CARDS -->
+  <div class="kpi-row">
+    <div class="kpi-card">
+      <div class="kpi-num">68</div>
+      <div class="kpi-lbl">Total Open Reqs</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-num">61</div>
+      <div class="kpi-lbl">Professional</div>
+    </div>
+    <div class="kpi-card intern-card">
+      <div class="kpi-num">7</div>
+      <div class="kpi-lbl">Intern</div>
+    </div>
+    <div class="kpi-card netnew-card">
+      <div class="kpi-num">31</div>
+      <div class="kpi-lbl">Net New</div>
+    </div>
+    <div class="kpi-card backfill1-card">
+      <div class="kpi-num">36</div>
+      <div class="kpi-lbl">Backfill (1:1)</div>
+    </div>
+    <div class="kpi-card uplevel-card">
+      <div class="kpi-num">1</div>
+      <div class="kpi-lbl">Backfill (Uplevel)</div>
+    </div>
+  </div>
+
+  <!-- AGING -->
+  <div class="section-title">Req Aging</div>
+  <div class="aging-row mb-24">
+    <div class="aging-card green">
+      <div class="aging-num">47</div>
+      <div class="aging-pct">69.1%</div>
+      <div class="aging-lbl">🟢 On Track</div>
+      <div class="aging-range">0 – 45 days</div>
+    </div>
+    <div class="aging-card yellow">
+      <div class="aging-num">10</div>
+      <div class="aging-pct">14.7%</div>
+      <div class="aging-lbl">🟡 Watch</div>
+      <div class="aging-range">46 – 74 days</div>
+    </div>
+    <div class="aging-card red">
+      <div class="aging-num">11</div>
+      <div class="aging-pct">16.2%</div>
+      <div class="aging-lbl">🔴 Critical</div>
+      <div class="aging-range">75+ days</div>
+    </div>
+  </div>
+
+  <!-- FORECASTED HIRES -->
+  <div class="section-title">Forecasted Hires — Next 3 Months</div>
+  <div class="three-col mb-24">
+    <div class="forecast-month">
+      <div class="f-month">May 2026</div>
+      <div class="f-total">26</div>
+      <div class="f-sub">projected starts</div>
+      <div class="f-split">
+        <div class="f-pro">
+          <div class="fnum">23</div>
+          <div class="flbl">Professional</div>
+        </div>
+        <div class="f-int">
+          <div class="fnum">3</div>
+          <div class="flbl">Intern</div>
+        </div>
+      </div>
+    </div>
+    <div class="forecast-month">
+      <div class="f-month">June 2026</div>
+      <div class="f-total">22</div>
+      <div class="f-sub">projected starts</div>
+      <div class="f-split">
+        <div class="f-pro">
+          <div class="fnum">18</div>
+          <div class="flbl">Professional</div>
+        </div>
+        <div class="f-int">
+          <div class="fnum">4</div>
+          <div class="flbl">Intern</div>
+        </div>
+      </div>
+    </div>
+    <div class="forecast-month">
+      <div class="f-month">July 2026</div>
+      <div class="f-total">8</div>
+      <div class="f-sub">projected starts</div>
+      <div class="f-split">
+        <div class="f-pro">
+          <div class="fnum">8</div>
+          <div class="flbl">Professional</div>
+        </div>
+        <div class="f-int">
+          <div class="fnum">0</div>
+          <div class="flbl">Intern</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PIPELINE STATUS (PROFESSIONAL ONLY) -->
+  <div class="section-title">Pipeline Status <span class="section-subtitle">Professional reqs only — intern reqs excluded</span></div>
+  <div class="panel mb-24">
+    <div class="pipeline-grid">
+      <div class="pipeline-stage no-stage">
+        <div class="ps-num">16</div>
+        <div class="ps-lbl">No Stage Yet</div>
+      </div>
+      <div class="pipeline-stage onsite">
+        <div class="ps-num">17</div>
+        <div class="ps-lbl">Onsite Intvws</div>
+      </div>
+      <div class="pipeline-stage sourcing">
+        <div class="ps-num">12</div>
+        <div class="ps-lbl">Sourcing</div>
+      </div>
+      <div class="pipeline-stage hm-intvws">
+        <div class="ps-num">8</div>
+        <div class="ps-lbl">HM Intvws</div>
+      </div>
+      <div class="pipeline-stage launch">
+        <div class="ps-num">5</div>
+        <div class="ps-lbl">Launch</div>
+      </div>
+      <div class="pipeline-stage offer">
+        <div class="ps-num">3</div>
+        <div class="ps-lbl">Offer</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RECRUITER + DEPARTMENT -->
+  <div class="two-col mb-24">
+
+    <!-- BY RECRUITER -->
+    <div class="panel">
+      <div class="section-title">By Recruiter</div>
+      <ul class="recruiter-list">
+        <li>
+          <span>Greg Freed</span>
+          <span class="recruiter-count">12</span>
+        </li>
+        <li>
+          <span>Brad Roman</span>
+          <span class="recruiter-count">11</span>
+        </li>
+        <li>
+          <span>Stacy Au-Yang</span>
+          <span class="recruiter-count">11</span>
+        </li>
+        <li>
+          <span>Wallace Oldham</span>
+          <span class="recruiter-count">9</span>
+        </li>
+        <li>
+          <span>Erika Ryan-Desmond</span>
+          <span class="recruiter-count">8</span>
+        </li>
+        <li>
+          <span>
+            Brittney Lee
+            <span class="intern-tag">Intern</span>
+          </span>
+          <span class="recruiter-count" style="background:#b45309;">7</span>
+        </li>
+        <li>
+          <span>Jeanette Britton</span>
+          <span class="recruiter-count">5</span>
+        </li>
+        <li>
+          <span>Aaron Drais</span>
+          <span class="recruiter-count">4</span>
+        </li>
+        <li>
+          <span>Brett Coin</span>
+          <span class="recruiter-count">1</span>
+        </li>
+      </ul>
+    </div>
+
+    <!-- BY DEPARTMENT -->
+    <div class="panel">
+      <div class="section-title">By Department</div>
+      <div class="dept-list">
+        <div class="dept-item"><span>Account Executives</span><span class="dept-count">11</span></div>
+        <div class="dept-item"><span>Engineering : Data</span><span class="dept-count">7</span></div>
+        <div class="dept-item"><span>Customer Success : TSM</span><span class="dept-count">6</span></div>
+        <div class="dept-item"><span>Partnerships (Sales)</span><span class="dept-count">4</span></div>
+        <div class="dept-item"><span>Engineering : Blades</span><span class="dept-count">3</span></div>
+        <div class="dept-item"><span>Engineering : Foundations</span><span class="dept-count">3</span></div>
+        <div class="dept-item"><span>Accounting</span><span class="dept-count">3</span></div>
+        <div class="dept-item"><span>Recruiting</span><span class="dept-count">3</span></div>
+        <div class="dept-item"><span>Sales : Velocity</span><span class="dept-count">3</span></div>
+        <div class="dept-item"><span>Corporate Marketing</span><span class="dept-count">2</span></div>
+        <div class="dept-item"><span>Customer Success Management</span><span class="dept-count">2</span></div>
+        <div class="dept-item"><span>GTM Management</span><span class="dept-count">2</span></div>
+        <div class="dept-item"><span>Sales Management</span><span class="dept-count">2</span></div>
+        <div class="dept-item"><span>Sales : Renewals</span><span class="dept-count">2</span></div>
+        <div class="dept-item"><span>Solutions Consulting</span><span class="dept-count">2</span></div>
+        <div class="dept-item"><span>Customer Success : CSA</span><span class="dept-count">1</span></div>
+        <div class="dept-item"><span>Customer Success : Mgmt</span><span class="dept-count">1</span></div>
+        <div class="dept-item"><span>Engineering : Infrastructure</span><span class="dept-count">1</span></div>
+        <div class="dept-item"><span>Engineering : Security</span><span class="dept-count">1</span></div>
+        <div class="dept-item"><span>Engineering : Sup</span><span class="dept-count">1</span></div>
+        <div class="dept-item"><span>Growth &amp; Digital Marketing</span><span class="dept-count">1</span></div>
+        <div class="dept-item"><span>People Management</span><span class="dept-count">1</span></div>
+        <div class="dept-item"><span>Product Management</span><span class="dept-count">1</span></div>
+        <div class="dept-item"><span>R&amp;D Design</span><span class="dept-count">1</span></div>
+        <div class="dept-item"><span>Sales Enablement</span><span class="dept-count">1</span></div>
+        <div class="dept-item"><span>Sales Operations</span><span class="dept-count">1</span></div>
+        <div class="dept-item"><span>Strategy: Rev Ops</span><span class="dept-count">1</span></div>
+        <div class="dept-item"><span>Workplaces</span><span class="dept-count">1</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- BY LOCATION -->
+  <div class="section-title">By Location</div>
+  <div class="two-col mb-24">
+
+    <!-- PHYSICAL OFFICES -->
+    <div class="panel">
+      <div class="location-col">
+        <h4>🏢 Physical Offices</h4>
+        <div class="loc-item"><span>San Francisco</span><span class="loc-count">37</span></div>
+        <div class="loc-item"><span>London</span><span class="loc-count">7</span></div>
+        <div class="loc-item"><span>New York City</span><span class="loc-count">3</span></div>
+        <div class="loc-item"><span>Amsterdam</span><span class="loc-count">1</span></div>
+        <div class="loc-item"><span>Singapore</span><span class="loc-count">1</span></div>
+        <div class="loc-item"><span>Tokyo</span><span class="loc-count">1</span></div>
+        <div class="loc-item"><span>Vancouver</span><span class="loc-count">1</span></div>
+      </div>
+    </div>
+
+    <!-- REMOTE -->
+    <div class="panel">
+      <div class="location-col">
+        <h4>🌐 Remote Locations</h4>
+        <div class="loc-item"><span>Remote-NAMER</span><span class="loc-count remote">9</span></div>
+        <div class="loc-item"><span>Brazil (Remote)</span><span class="loc-count remote">2</span></div>
+        <div class="loc-item"><span>Poland (Remote)</span><span class="loc-count remote">1</span></div>
+        <div class="loc-item"><span>Remote - Saudi Arabia</span><span class="loc-count remote">1</span></div>
+        <div class="loc-item"><span>Remote-Australia</span><span class="loc-count remote">1</span></div>
+        <div class="loc-item"><span>Remote-Germany</span><span class="loc-count remote">1</span></div>
+        <div class="loc-item"><span>Remote-Japan</span><span class="loc-count remote">1</span></div>
+        <div class="loc-item"><span>Remote-Sweden</span><span class="loc-count remote">1</span></div>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+</body>
+</html>

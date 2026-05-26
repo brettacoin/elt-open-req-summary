@@ -1,9 +1,7 @@
 name: Update ELT Dashboard
 
 on:
-  schedule:
-    - cron: '15 17 * * 1-5'  # 10:15 AM PT (Mon-Fri), after Cowork task runs
-  workflow_dispatch:           # also allows manual "Run workflow" button
+ 
 
 jobs:
   build:
